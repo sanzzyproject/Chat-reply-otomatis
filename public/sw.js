@@ -8,20 +8,53 @@ self.addEventListener('activate', (event) => {
   console.log('Service Worker: Aktif berjalan di latar belakang.');
 });
 
-self.addEventListener('push', function(event) {
-  // Push listener simulates fast background responses
-  let data = {};
-  if (event.data) {
-    data = event.data.json();
-  }
-  
-  const options = {
-    body: data.message || 'Pesan otomatis berhasil terkirim dari server (< 1 detik).',
-    icon: '/favicon.ico',
-    badge: '/favicon.ico'
-  };
+let activeRules = [];
+let activeContacts = { replyTo: 'all', enableGroups: true };
 
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'Autoreply Aktif', options)
-  );
+// Menerima sinkronisasi aturan atau pesan masuk
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SYNC') {
+    activeRules = event.data.rules || [];
+    activeContacts = event.data.contacts || { replyTo: 'all', enableGroups: true };
+    console.log('SW: Aturan sinkron untuk latar belakang.');
+  } 
+  else if (event.data && event.data.type === 'TEST_MESSAGE') {
+    // Memproses pesan yang masuk seolah ditarik dari notifikasi
+    const { message, isGroup } = event.data;
+    let finalReply = null;
+
+    if (isGroup && !activeContacts.enableGroups) {
+      // Diabaikan karena aturan grup nonaktif
+    } else {
+      for (const rule of activeRules) {
+        const msgLower = message.toLowerCase();
+        const kwLower = rule.keyword.toLowerCase();
+        
+        if (rule.matchType === 'exact' && msgLower === kwLower) {
+          finalReply = rule.reply;
+          break;
+        } else if (rule.matchType === 'contains' && msgLower.includes(kwLower)) {
+          finalReply = rule.reply;
+          break;
+        }
+      }
+    }
+
+    if (finalReply) {
+      // Eksekusi kilat (Super Cepat < 1 dtk)
+      self.registration.showNotification('⚡ Membalas Otomatis (< 1 dtk)', {
+        body: `Balasan terkirim: "${finalReply}"\nKepada tujuan otomatis.`,
+        icon: '/favicon.ico',
+        badge: '/favicon.ico'
+      });
+
+      if (event.ports && event.ports[0]) {
+        event.ports[0].postMessage({ reply: finalReply, speed: 'instant' });
+      }
+    } else {
+      if (event.ports && event.ports[0]) {
+        event.ports[0].postMessage({ reply: null });
+      }
+    }
+  }
 });
