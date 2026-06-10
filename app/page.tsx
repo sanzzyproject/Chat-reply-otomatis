@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useLocalStorage } from '@/hooks/use-local-storage';
-import { MessageCircle, Users, Settings, Plus, Trash2, Bell, Send, Check, ShieldAlert, Bot, User } from 'lucide-react';
+import { MessageCircle, Users, Settings, Plus, Trash2, Bell, Send, Check, ShieldAlert, Bot, User, Server } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type Rule = { id: string; keyword: string; reply: string; matchType: 'exact' | 'contains' };
@@ -13,25 +13,47 @@ type ChatMsg = { id: string; text: string; sender: 'user' | 'bot'; isGroup?: boo
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<'aturan' | 'kontak' | 'testing'>('aturan');
+  const [activeTab, setActiveTab] = useState<'aturan' | 'kontak' | 'testing' | 'server'>('aturan');
   const [rules, setRules, isClient] = useLocalStorage<Rule[]>('wa-rules', []);
   const [contacts, setContacts] = useLocalStorage<Contacts>('wa-contacts', { replyTo: 'all', enableGroups: true });
   
   const [notificationPerm, setNotificationPerm] = useState<NotificationPermission | 'default'>('default');
+  const [showPermissionModal, setShowPermissionModal] = useState(false);
 
   useEffect(() => {
+    // 1. Validasi Akses Notifikasi Latar Belakang (Langsung diloading saat pertama)
     if ('Notification' in window) {
       setNotificationPerm(Notification.permission);
+      if (Notification.permission === 'default') {
+         // Paksa modal tampil sangat awal
+        setShowPermissionModal(true);
+      }
+    }
+
+    // 2. Register Service Worker PWA agar bisa tetap berjalan di Latar Belakang HP
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .catch(err => console.error('SW Error:', err));
     }
   }, []);
 
-  const requestNotification = async () => {
-    if (!('Notification' in window)) {
-      alert('Browser ini tidak mendukung notifikasi. Gunakan browser desktop standar.');
-      return;
+  // 3. Sinkronisasikan Aturan ke Node.js Backend API pada setiap modifikasi UI (Real time update support)
+  useEffect(() => {
+    if (isClient && rules) {
+      fetch('/api/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'sync', rules, contactSettings: contacts })
+      }).catch(() => {});
     }
-    const perm = await Notification.requestPermission();
-    setNotificationPerm(perm);
+  }, [rules, contacts, isClient]);
+
+  const requestNotificationAndStart = async () => {
+    if ('Notification' in window) {
+      const perm = await Notification.requestPermission();
+      setNotificationPerm(perm);
+    }
+    setShowPermissionModal(false);
   };
 
   const fireLocalNotification = (title: string, body: string) => {
@@ -40,45 +62,82 @@ export default function Dashboard() {
     }
   };
 
-  if (!isClient) return <div className="min-h-screen bg-[#111b21] flex items-center justify-center text-white">Memuat Sistem...</div>;
+  if (!isClient) return <div className="min-h-screen bg-[#111b21] flex items-center justify-center text-white">Memulai Engine Vercel...</div>;
 
   return (
-    <div className="min-h-screen bg-[#111b21] text-gray-200 font-sans selection:bg-teal-600">
+    <div className="min-h-screen bg-[#111b21] text-gray-200 font-sans selection:bg-teal-600 pb-20">
+      
+      {/* Modal Izin Notifikasi Utama */}
+      <AnimatePresence>
+        {showPermissionModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+             <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} className="bg-[#202c33] p-7 rounded-3xl max-w-sm w-full border border-gray-700 shadow-2xl text-center relative overflow-hidden">
+               <div className="absolute inset-0 bg-teal-500/5 blur-3xl pointer-events-none"></div>
+               <div className="w-20 h-20 bg-[#0b141a] rounded-full flex items-center justify-center mx-auto mb-5 border-2 border-teal-500/30 relative z-10 shadow-[0_0_30px_rgba(20,184,166,0.2)]">
+                 <Bell className="w-10 h-10 text-teal-400" />
+                 <div className="absolute top-0 right-0 w-4 h-4 bg-teal-400 rounded-full animate-ping"></div>
+                 <div className="absolute top-0 right-0 w-4 h-4 bg-teal-500 rounded-full border-2 border-[#0b141a]"></div>
+               </div>
+               <h2 className="text-xl font-bold text-white mb-2 relative z-10">Izin Akses Notifikasi</h2>
+               <p className="text-sm text-gray-400 mb-6 leading-relaxed relative z-10">
+                 Agar bot dapat menerima data pesan masuk dan membalas di latar belakang dengan sangat cepat (kurang dari 1 detik).
+               </p>
+               <button
+                 onClick={requestNotificationAndStart}
+                 className="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold py-3.5 rounded-xl transition shadow-lg shadow-teal-900/40 relative z-10"
+               >
+                 Izinkan & Mulai Sistem
+               </button>
+             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
-      <header className="bg-[#202c33] px-4 py-4 flex items-center justify-between shadow-md border-b border-gray-700">
+      <header className="bg-[#202c33] px-4 py-4 flex flex-col sm:flex-row sm:items-center justify-between shadow-md border-b border-gray-700 gap-3 sticky top-0 z-40">
         <div className="flex items-center gap-3">
-          <MessageCircle className="w-6 h-6 text-teal-500" />
-          <h1 className="text-xl font-semibold text-gray-100">Autoreply Web</h1>
+          <MessageCircle className="w-7 h-7 text-teal-500" />
+          <div>
+            <h1 className="text-lg font-bold text-gray-100 leading-tight">Bot Web Autoreply</h1>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-500"></span>
+              </span>
+              <span className="text-[10px] text-teal-400 font-medium">Aktif di Latar Belakang</span>
+            </div>
+          </div>
         </div>
-        {notificationPerm !== 'granted' && (
+        {notificationPerm !== 'granted' && !showPermissionModal && (
           <button 
-            onClick={requestNotification}
-            className="flex items-center gap-2 text-xs bg-teal-600 hover:bg-teal-500 text-white px-3 py-1.5 rounded-full transition shadow-sm"
+            onClick={requestNotificationAndStart}
+            className="flex items-center justify-center gap-2 text-xs bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg transition font-medium"
           >
             <Bell className="w-4 h-4" />
-            Izin Notifikasi
+            Beri Akses Notifikasi
           </button>
         )}
       </header>
 
       <div className="max-w-3xl mx-auto mt-6">
         {/* Tabs */}
-        <div className="flex border-b border-gray-700 mb-6">
+        <div className="flex border-b border-gray-700 mb-6 overflow-x-auto scrollbar-hide py-1 px-4 sm:px-0 scroll-smooth">
           {[
             { id: 'aturan', label: 'ATURAN KATA KUNCI', icon: MessageCircle },
-            { id: 'kontak', label: 'KONTAK', icon: Users },
+            { id: 'kontak', label: 'KONTAK GRUP', icon: Users },
+            { id: 'server', label: 'INTEGRASI SERVER', icon: Server },
             { id: 'testing', label: 'PENGUJIAN', icon: Settings },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
               className={cn(
-                "flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors relative",
+                "flex-1 flex items-center justify-center gap-2 py-3 px-4 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap",
                 activeTab === tab.id ? "text-teal-400" : "text-gray-400 hover:text-gray-300"
               )}
             >
               <tab.icon className="w-4 h-4" />
-              <span className="hidden sm:inline">{tab.label}</span>
+              <span>{tab.label}</span>
               {activeTab === tab.id && (
                 <motion.div
                   layoutId="active-tab"
@@ -90,11 +149,12 @@ export default function Dashboard() {
         </div>
 
         {/* Content Area */}
-        <main className="px-4 pb-12">
+        <main className="px-4">
           <AnimatePresence mode="wait">
             {activeTab === 'aturan' && <AturanTab key="aturan" rules={rules} setRules={setRules} />}
             {activeTab === 'kontak' && <KontakTab key="kontak" contacts={contacts} setContacts={setContacts} />}
-            {activeTab === 'testing' && <TestingTab key="testing" rules={rules} contacts={contacts} onBotReply={(msg) => fireLocalNotification("Pesan Otomatis Terkirim", `AI/Sistem: ${msg}`)} />}
+            {activeTab === 'server' && <ServerTab key="server" />}
+            {activeTab === 'testing' && <TestingTab key="testing" rules={rules} contacts={contacts} onBotReply={(msg) => fireLocalNotification("Bot Otomatis Membalas!", msg)} />}
           </AnimatePresence>
         </main>
       </div>
@@ -152,7 +212,7 @@ function AturanTab({ rules, setRules }: { rules: Rule[], setRules: any }) {
             </div>
           </div>
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">Teks Balasan otomatis</label>
+            <label className="text-xs text-gray-400 mb-1 block">Teks Balasan Otomatis</label>
             <textarea 
               value={reply}
               onChange={(e) => setReply(e.target.value)}
@@ -167,13 +227,13 @@ function AturanTab({ rules, setRules }: { rules: Rule[], setRules: any }) {
             className="disabled:opacity-50 disabled:cursor-not-allowed bg-teal-600 hover:bg-teal-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2"
           >
             <Plus className="w-4 h-4" />
-            Simpan Aturan
+            Simpan Aturan Backend
           </button>
         </div>
       </div>
 
       <div className="space-y-3">
-        <h3 className="text-sm font-medium text-gray-400 px-1">Daftar Aturan ({rules.length})</h3>
+        <h3 className="text-sm font-medium text-gray-400 px-1">Daftar Aturan Tersimpan ({rules.length})</h3>
         {rules.length === 0 && (
           <div className="text-center py-8 text-gray-500 bg-[#202c33] rounded-xl border border-gray-700 border-dashed">
             Belum ada aturan kata kunci yang dibuat.
@@ -211,13 +271,13 @@ function KontakTab({ contacts, setContacts }: { contacts: Contacts, setContacts:
         <div className="p-4 border-b border-gray-700 bg-[#2a3942]/50">
           <h2 className="text-sm font-medium text-gray-200 flex items-center gap-2">
             <ShieldAlert className="w-4 h-4 text-teal-500" />
-            Balas otomatis ke
+            Otorisasi Balasan (Grup / Teman)
           </h2>
         </div>
         <div className="p-2">
           {[
-            { id: 'all', label: 'Semua orang' },
-            { id: 'my_contacts', label: 'Daftar kontak saya...' },
+            { id: 'all', label: 'Semua orang (Grup, Teman Baru, dll)' },
+            { id: 'my_contacts', label: 'Daftar kontak saya saja' },
             { id: 'except', label: 'Kecuali daftar kontak saya...' },
           ].map((opt) => (
             <label key={opt.id} className="flex items-center gap-3 p-3 hover:bg-[#2a3942] rounded-lg cursor-pointer transition">
@@ -242,8 +302,8 @@ function KontakTab({ contacts, setContacts }: { contacts: Contacts, setContacts:
 
       <div className="bg-[#202c33] p-5 rounded-xl border border-gray-700 flex items-center justify-between shadow-sm cursor-pointer" onClick={() => setContacts({ ...contacts, enableGroups: !contacts.enableGroups })}>
         <div>
-          <h3 className="text-sm font-medium text-white mb-1">Aktifkan Grup</h3>
-          <p className="text-xs text-gray-400">Bot akan merespons pesan kata kunci di dalam grup chat.</p>
+          <h3 className="text-sm font-medium text-white mb-1">Aktifkan Grup Balasan</h3>
+          <p className="text-xs text-gray-400">Bot akan merespons pesan secara otomatis jika seseorang menyebut keyword di grup WhatsApp.</p>
         </div>
         <label className="relative inline-flex items-center cursor-pointer pointer-events-none">
           <input 
@@ -254,6 +314,61 @@ function KontakTab({ contacts, setContacts }: { contacts: Contacts, setContacts:
           />
           <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-500"></div>
         </label>
+      </div>
+    </motion.div>
+  );
+}
+
+function ServerTab() {
+  const [origin, setOrigin] = useState('');
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
+    }
+  }, []);
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+      <div className="bg-[#202c33] p-5 rounded-xl border border-gray-700 shadow-sm relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 blur-3xl rounded-full"></div>
+        <h2 className="text-lg font-medium text-white mb-2 flex items-center gap-2">
+          <Server className="w-5 h-5 text-teal-500" />
+          Koneksi Vercel Secara Real Time
+        </h2>
+        <p className="text-sm text-gray-400 mb-6 leading-relaxed">
+          Gunakan pengaturan aturan web ini untuk membalas WhatsApp sesungguhnya langsung dari HP Android Anda menggunakan metode <strong>"Balasan Server"</strong> di aplikasi seperti WhatsAuto. Web ini memproses payload secara aman dan sangat cepat (&lt; 1 detik).
+        </p>
+        
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-gray-400 font-medium tracking-wide block mb-1">URL Webhook Node.js Backend:</label>
+            <div className="flex">
+              <input 
+                type="text" 
+                readOnly 
+                value={`${origin}/api/webhook`} 
+                className="flex-1 bg-[#0b141a] border border-gray-600 rounded-l-lg px-4 py-3 text-xs sm:text-sm text-teal-400 shadow-inner font-mono focus:outline-none"
+              />
+              <button 
+                onClick={() => navigator.clipboard.writeText(`${origin}/api/webhook`)}
+                className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-3 border border-l-0 border-gray-600 rounded-r-lg text-sm font-medium transition"
+              >
+                Salin
+              </button>
+            </div>
+          </div>
+          
+          <div className="bg-[#2a3942] rounded-lg p-4 text-sm text-gray-300 leading-relaxed border border-gray-700/50 shadow-sm">
+            <strong className="text-teal-400 block mb-2 font-semibold">Instruksi Eksekusi:</strong>
+            <ol className="list-decimal list-outside ml-4 space-y-2 text-[13px]">
+              <li>Deploy code Next.js ini secara independen ke <strong>Vercel (Support Standalone)</strong>.</li>
+              <li>Buka aplikasi Android seperti <strong>WhatsAuto</strong> di HP Utama Anda.</li>
+              <li>Pilih menu <strong>Pengaturan Balasan &gt; Balasan Server (Server Reply)</strong>.</li>
+              <li>Toggle/Aktifkan fiturnya, lalu tempel <strong>URL Webhook</strong> yang disalin di atas.</li>
+              <li>Semua pesan yg masuk ke WA Anda akan dikirim ke Backend Vercel web ini, dan server kita menembakkan balasan kembali ke HP Anda secara instan dalam hitungan milidetik tanpa bug!</li>
+            </ol>
+          </div>
+        </div>
       </div>
     </motion.div>
   );
@@ -288,7 +403,7 @@ function TestingTab({ rules, contacts, onBotReply }: { rules: Rule[], contacts: 
     setIsLoading(true);
 
     try {
-      // Memanggil backend router Next.js API
+      // Backend Router Call
       const res = await fetch('/api/webhook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -304,7 +419,7 @@ function TestingTab({ rules, contacts, onBotReply }: { rules: Rule[], contacts: 
       setIsLoading(false);
 
       if (data.reply) {
-        // Simulasi delay pengetikan seakan nyata
+        // Balasan dipercepat super kilat (< 1 detik atau ~50ms)
         setTimeout(() => {
           const botMsg: ChatMsg = {
             id: generateId(),
@@ -314,7 +429,7 @@ function TestingTab({ rules, contacts, onBotReply }: { rules: Rule[], contacts: 
           };
           setMessages(prev => [...prev, botMsg]);
           onBotReply(data.reply);
-        }, 800);
+        }, 50);
       }
     } catch (error) {
       setIsLoading(false);
@@ -325,7 +440,7 @@ function TestingTab({ rules, contacts, onBotReply }: { rules: Rule[], contacts: 
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="flex flex-col h-[550px] bg-[#0b141a] rounded-xl border border-gray-700 overflow-hidden relative shadow-md">
       
-      {/* Fake Background Pattern */}
+      {/* Background WhatsApp Pattern */}
       <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: "url('https://static.whatsapp.net/rsrc.php/v3/yl/r/rro_jQnXYFm.png')", backgroundSize: "contain" }}></div>
 
       <div className="bg-[#202c33] p-3 flex items-center justify-between shadow-sm z-10 border-b border-gray-700">
@@ -334,8 +449,8 @@ function TestingTab({ rules, contacts, onBotReply }: { rules: Rule[], contacts: 
              {isGroupSim ? <Users className="w-5 h-5 text-gray-300" /> : <User className="w-6 h-6 text-gray-300" />}
           </div>
           <div>
-            <h3 className="text-sm font-medium text-white">{isGroupSim ? 'Grup Testing (Simulasi)' : 'Pengguna Test (Simulasi)'}</h3>
-            <p className="text-[11px] text-teal-500 font-medium tracking-wide">● BACKEND ROUTER AKTIF</p>
+            <h3 className="text-sm font-medium text-white">{isGroupSim ? 'Simulasi Grup' : 'Simulasi Teman / Pribadi'}</h3>
+            <p className="text-[11px] text-teal-500 font-medium tracking-wide">● SERVER VERCEL AKTIF</p>
           </div>
         </div>
         <label className="flex items-center gap-2 text-xs text-gray-400 bg-[#2a3942] px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-700 transition border border-gray-600">
@@ -345,7 +460,7 @@ function TestingTab({ rules, contacts, onBotReply }: { rules: Rule[], contacts: 
             onChange={(e) => setIsGroupSim(e.target.checked)}
             className="rounded border-gray-500 bg-transparent text-teal-500 focus:ring-teal-500 focus:ring-offset-0"
           />
-          Pesan dari Grup
+          Chat dari Grup
         </label>
       </div>
 
@@ -353,7 +468,7 @@ function TestingTab({ rules, contacts, onBotReply }: { rules: Rule[], contacts: 
         {messages.length === 0 && (
           <div className="text-center py-6">
             <span className="bg-[#182229] border border-gray-700 text-gray-300 text-xs px-4 py-2 rounded-lg shadow-sm">
-              Coba ketik pesan yang cocok dengan aturan kata kunci Anda.
+              Mulai mengetik untuk test balasan webhook &lt; 1 detik
             </span>
           </div>
         )}

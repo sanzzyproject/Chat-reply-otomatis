@@ -1,0 +1,16 @@
+{
+  "name": "Autoreply Web App",
+  "short_name": "Autoreply",
+  "description": "Aplikasi autoreply latar belakang Vercel",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111b21",
+  "theme_color": "#202c33",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}
