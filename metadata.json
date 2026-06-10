@@ -1,0 +1,6 @@
+{
+  "name": "Autoreply Web App",
+  "description": "A web application that mimics auto-reply functionality for chat messages using custom keyword rules and nextjs backend routing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
