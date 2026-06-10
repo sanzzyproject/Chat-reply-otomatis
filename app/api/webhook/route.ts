@@ -6,12 +6,22 @@ let serverRules: any[] = [];
 let serverContacts: any = { replyTo: 'all', enableGroups: true };
 
 export async function GET(req: Request) {
-  return NextResponse.json({ status: 'Online', message: 'Backend Router Aktif & Siap Membalas.' });
+  return NextResponse.json({ status: 'Online', message: 'Backend Router Aktif & Siap Membalas Via WhatsAuto.' });
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const bodyText = await req.text();
+    let body: any = {};
+    
+    // Parsing yang sangat aman agar WhatsAuto tidak mengalami error
+    try {
+      body = JSON.parse(bodyText);
+    } catch (e) {
+      // Jika WhatsAuto mengirim format ter-encode (URLSearchParams fallback)
+      const params = new URLSearchParams(bodyText);
+      body = Object.fromEntries(params.entries());
+    }
     
     // --- 1. Mode Sinkronisasi Aturan dari Frontend Web ---
     if (body.type === 'sync') {
@@ -20,26 +30,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, message: 'Sinkronisasi sukses. Webhook siap!' });
     }
 
-    // --- 2. Mode Simulasi & Mode Real External (Misal dari Fitur "Balasan Server" WhatsAuto) ---
-    // Payload dari aplikasi pihak ketiga / WhatsAuto: { app, sender, message, group_name, phone }
+    // --- 2. Mode Simulasi & Mode Real External (WhatsAuto payload) ---
     const message = body.message || '';
-    const isGroup = body.isGroup !== undefined ? body.isGroup : !!body.group_name;
+    const isGroup = body.isGroup === true || body.isGroup === 'true' || !!body.group_name;
     
-    // Gunakan payload rules dari body (simulasi UI) atau memori server (Request asli Whatsauto)
     const rulesToUse = body.rules || serverRules;
     const contactsToUse = body.contactSettings || serverContacts;
 
-    if (!message) {
-       return NextResponse.json({ reply: null, reason: 'Payload kosong' }, { status: 400 });
+    // Jika WhatsAuto mem-ping "Pesan percobaan" (Fitur default testing WhatsAuto)
+    if (message === 'Pesan percobaan' && rulesToUse.length === 0) {
+      return NextResponse.json({ reply: 'Koneksi dari WhatsAuto ke Vercel sukses! Tambahkan aturan di web Anda untuk mulai membalas otomatis.' });
     }
 
-    // Setelan filter grup (beroperasi sangat cepat)
-    if (isGroup && !contactsToUse.enableGroups) {
-      return NextResponse.json({ reply: null, reason: 'Grup dinonaktifkan', success: true });
+    // Jika pesan kosong atau filter grup aktif tapi chat dari grup
+    if (!message || (isGroup && !contactsToUse.enableGroups)) {
+      return NextResponse.json({ reply: "" }); // Respon kosong / tidak usah dibalas
     }
 
-    // Proses pencocokan (algoritma O(N) linier sangat cepat di bawah 1 detik)
-    let matchedReply = null;
+    // Proses pencocokan (algoritma linier sangat cepat di bawah 1 detik)
+    let matchedReply = "";
     for (const rule of rulesToUse) {
       const msgLower = message.toLowerCase();
       const kwLower = rule.keyword.toLowerCase();
@@ -53,15 +62,13 @@ export async function POST(req: Request) {
       }
     }
 
-    // Jika eksternal webhook butuh JSON dengan key "reply", ini dikembalikan dengan latensi serendah mungkin.
-    if (matchedReply) {
-      return NextResponse.json({ reply: matchedReply, success: true });
-    }
-
-    return NextResponse.json({ reply: null, success: true });
+    // Mengembalikan JSON standar WhatsAuto {"reply": "pesan"}
+    return NextResponse.json({ reply: matchedReply });
 
   } catch (error: any) {
     console.error("Webhook processing error:", error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // Jika ada error internal, return {"reply": ""} agar WhatsAuto tidak mendeteksi null
+    return NextResponse.json({ reply: "" });
   }
 }
+
